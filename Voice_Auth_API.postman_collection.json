@@ -1,0 +1,151 @@
+{
+  "info": {
+    "name": "Voice Authentication API",
+    "description": "Coleção Postman para testar a API de Autenticação por Voz",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["health"]
+        },
+        "description": "Verifica se a API está online e funcionando"
+      }
+    },
+    {
+      "name": "Root",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": [""]
+        },
+        "description": "Informações básicas da API e endpoints disponíveis"
+      }
+    },
+    {
+      "name": "Get Challenge Phrase",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Salvar frase no ambiente",
+              "var jsonData = pm.response.json();",
+              "pm.environment.set(\"challenge_phrase\", jsonData.phrase);",
+              "console.log(\"Frase salva:\", jsonData.phrase);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/voice/challenge",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["voice", "challenge"]
+        },
+        "description": "Obtém uma frase aleatória para o usuário pronunciar. A frase é salva automaticamente na variável de ambiente 'challenge_phrase'."
+      }
+    },
+    {
+      "name": "Enroll User Voice",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "user_id",
+              "value": "usuario_teste_123",
+              "description": "ID único do usuário",
+              "type": "text"
+            },
+            {
+              "key": "phrase_expected",
+              "value": "{{challenge_phrase}}",
+              "description": "Frase que o usuário deve ter pronunciado (use {{challenge_phrase}} para usar a frase do challenge)",
+              "type": "text"
+            },
+            {
+              "key": "audio_file",
+              "description": "Arquivo de áudio WAV com a voz do usuário",
+              "type": "file",
+              "src": []
+            }
+          ]
+        },
+        "url": {
+          "raw": "http://localhost:8000/voice/enroll",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["voice", "enroll"]
+        },
+        "description": "Cadastra a voz de um usuário. Envie um arquivo de áudio WAV (16kHz, mono) com o usuário pronunciando a frase do challenge."
+      }
+    },
+    {
+      "name": "Verify User Voice",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "user_id",
+              "value": "usuario_teste_123",
+              "description": "ID do usuário (deve estar cadastrado)",
+              "type": "text"
+            },
+            {
+              "key": "phrase_expected",
+              "value": "{{challenge_phrase}}",
+              "description": "Frase que o usuário deve pronunciar",
+              "type": "text"
+            },
+            {
+              "key": "audio_file",
+              "description": "Arquivo de áudio WAV para verificação",
+              "type": "file",
+              "src": []
+            }
+          ]
+        },
+        "url": {
+          "raw": "http://localhost:8000/voice/verify",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["voice", "verify"]
+        },
+        "description": "Verifica se a voz pertence ao usuário cadastrado. Retorna se foi autenticado e a similaridade."
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ]
+}

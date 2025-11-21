@@ -1,0 +1,21 @@
+fastapi==0.115.12
+uvicorn==0.34.2
+gunicorn==21.2.0
+python-multipart==0.0.6
+sqlalchemy==2.0.41
+pymysql==1.1.0
+cryptography==41.0.7
+python-dotenv==1.0.0
+pydantic==2.11.5
+pydantic-settings==2.1.0
+requests==2.31.0
+
+# ML Dependencies - Versões compatíveis
+speechbrain==1.0.0
+torch==2.1.1
+torchaudio==2.1.1
+soundfile==0.12.1  # Backend de áudio para torchaudio no Windows
+vosk==0.3.45
+numpy==1.24.3
+scikit-learn==1.3.2
+huggingface-hub==0.16.4
