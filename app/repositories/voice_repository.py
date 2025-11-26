@@ -107,3 +107,22 @@ class VoiceRepository:
             logger.error(f"Erro ao remover perfil do usuário {user_id}: {e}")
             self.db.rollback()
             return False
+    
+    def user_exists(self, user_id: str) -> bool:
+        """
+        Verifica se existe um perfil de voz cadastrado para o user_id
+        
+        Args:
+            user_id: ID do usuário
+            
+        Returns:
+            True se o usuário existe, False caso contrário
+        """
+        try:
+            exists = self.db.query(UserVoiceProfile).filter(
+                UserVoiceProfile.user_id == user_id
+            ).count() > 0
+            return exists
+        except Exception as e:
+            logger.error(f"Erro ao verificar existência do usuário {user_id}: {e}")
+            return False

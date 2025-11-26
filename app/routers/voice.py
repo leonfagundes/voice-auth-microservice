@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.database import get_db
 from app.services.voice_service import VoiceService
+from app.repositories.voice_repository import VoiceRepository
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,12 @@ class VerifyResponse(BaseModel):
     threshold: float = None
     message: str
     transcription: str = None
+
+
+class UserExistsResponse(BaseModel):
+    """Response para endpoint de verificação de existência de usuário"""
+    exists: bool
+    user_id: str
 
 
 @router.get("/challenge", response_model=ChallengeResponse)
@@ -102,6 +109,38 @@ async def enroll_voice(
     except Exception as e:
         logger.error(f"Erro no enrollment: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao processar enrollment: {str(e)}")
+
+
+@router.get("/user/{user_id}/exists", response_model=UserExistsResponse)
+async def check_user_exists(
+    user_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    GET /voice/user/{user_id}/exists
+    
+    Verifica se existe um perfil de voz cadastrado para o user_id fornecido
+    
+    Args:
+        user_id: ID único do usuário
+        
+    Returns:
+        UserExistsResponse com exists=True se o usuário existe, False caso contrário
+    """
+    try:
+        repository = VoiceRepository(db)
+        exists = repository.user_exists(user_id)
+        
+        logger.info(f"Verificação de existência para user_id {user_id}: {exists}")
+        
+        return UserExistsResponse(exists=exists, user_id=user_id)
+    
+    except Exception as e:
+        logger.error(f"Erro ao verificar existência do usuário {user_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao verificar existência do usuário: {str(e)}"
+        )
 
 
 @router.post("/verify", response_model=VerifyResponse)
