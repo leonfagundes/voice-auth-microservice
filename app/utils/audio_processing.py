@@ -11,6 +11,7 @@ import shutil
 import numpy as np
 from typing import Tuple, Optional
 from vosk import Model, KaldiRecognizer
+from pydub import AudioSegment
 import librosa
 import soundfile as sf
 
@@ -170,8 +171,8 @@ def get_speechbrain_model(model_name: str) -> EncoderClassifier:
 def convert_to_wav(audio_bytes: bytes) -> Tuple[str, int]:
     """
     Converte bytes de áudio para arquivo WAV temporário normalizado
-    Aceita qualquer formato (MP3, M4A, OGG, AAC, AMR, etc.) e converte para WAV 16kHz mono
-    Usa torchaudio como principal e librosa como fallback para maior compatibilidade
+    Aceita qualquer formato (MP3, M4A, OGG, AAC, AMR, 3GP, etc.) e converte para WAV 16kHz mono
+    Usa pydub+FFmpeg como primeiro método (mais compatível), depois torchaudio, depois librosa
     
     Args:
         audio_bytes: Bytes do arquivo de áudio em qualquer formato
@@ -184,46 +185,98 @@ def convert_to_wav(audio_bytes: bytes) -> Tuple[str, int]:
         input_file.write(audio_bytes)
         input_path = input_file.name
     
+    output_path = None
+    
     try:
-        # Tentar com torchaudio primeiro (mais rápido)
-        try:
-            waveform, original_sr = torchaudio.load(input_path)
-            logger.info(f"Áudio carregado com torchaudio: {original_sr}Hz")
-        except Exception as e:
-            # Fallback para librosa (suporta mais formatos, especialmente do Android)
-            logger.warning(f"torchaudio falhou, usando librosa como fallback: {e}")
-            audio_data, original_sr = librosa.load(input_path, sr=None, mono=False)
-            
-            # Converter numpy array para tensor torch
-            if audio_data.ndim == 1:
-                waveform = torch.from_numpy(audio_data).unsqueeze(0)
-            else:
-                waveform = torch.from_numpy(audio_data)
-            
-            logger.info(f"Áudio carregado com librosa: {original_sr}Hz")
-        
-        # Converter para mono se necessário
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-        
-        # Resample para 16kHz se necessário
         target_sr = 16000
-        if original_sr != target_sr:
-            resampler = torchaudio.transforms.Resample(original_sr, target_sr)
-            waveform = resampler(waveform)
         
-        # Salvar como WAV normalizado
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as output_file:
-            output_path = output_file.name
-        
-        torchaudio.save(output_path, waveform, target_sr)
-        
-        logger.info(f"✅ Áudio convertido: {original_sr}Hz -> {target_sr}Hz, canais: mono")
-        
-        return output_path, target_sr
+        # MÉTODO 1: Tentar com pydub+FFmpeg (mais compatível com Android)
+        try:
+            logger.info("Tentando carregar áudio com pydub+FFmpeg...")
+            
+            # pydub aceita praticamente todos os formatos via FFmpeg
+            audio = AudioSegment.from_file(input_path)
+            
+            # Converter para mono
+            if audio.channels > 1:
+                audio = audio.set_channels(1)
+            
+            # Resample para 16kHz
+            if audio.frame_rate != target_sr:
+                audio = audio.set_frame_rate(target_sr)
+            
+            # Salvar como WAV
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as output_file:
+                output_path = output_file.name
+            
+            audio.export(output_path, format='wav')
+            
+            logger.info(f"✅ Áudio convertido com pydub: {audio.frame_rate}Hz -> {target_sr}Hz, canais: mono")
+            
+            return output_path, target_sr
+            
+        except Exception as e:
+            logger.warning(f"pydub falhou, tentando torchaudio: {e}")
+            
+            # MÉTODO 2: Tentar com torchaudio (mais rápido para WAV/MP3)
+            try:
+                waveform, original_sr = torchaudio.load(input_path)
+                logger.info(f"Áudio carregado com torchaudio: {original_sr}Hz")
+                
+                # Converter para mono se necessário
+                if waveform.shape[0] > 1:
+                    waveform = torch.mean(waveform, dim=0, keepdim=True)
+                
+                # Resample para 16kHz se necessário
+                if original_sr != target_sr:
+                    resampler = torchaudio.transforms.Resample(original_sr, target_sr)
+                    waveform = resampler(waveform)
+                
+                # Salvar como WAV normalizado
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as output_file:
+                    output_path = output_file.name
+                
+                torchaudio.save(output_path, waveform, target_sr)
+                
+                logger.info(f"✅ Áudio convertido com torchaudio: {original_sr}Hz -> {target_sr}Hz, canais: mono")
+                
+                return output_path, target_sr
+                
+            except Exception as e2:
+                logger.warning(f"torchaudio falhou, tentando librosa: {e2}")
+                
+                # MÉTODO 3: Fallback para librosa (último recurso)
+                audio_data, original_sr = librosa.load(input_path, sr=None, mono=False)
+                
+                # Converter numpy array para tensor torch
+                if audio_data.ndim == 1:
+                    waveform = torch.from_numpy(audio_data).unsqueeze(0)
+                else:
+                    waveform = torch.from_numpy(audio_data)
+                
+                logger.info(f"Áudio carregado com librosa: {original_sr}Hz")
+                
+                # Converter para mono se necessário
+                if waveform.shape[0] > 1:
+                    waveform = torch.mean(waveform, dim=0, keepdim=True)
+                
+                # Resample para 16kHz se necessário
+                if original_sr != target_sr:
+                    resampler = torchaudio.transforms.Resample(original_sr, target_sr)
+                    waveform = resampler(waveform)
+                
+                # Salvar como WAV normalizado
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as output_file:
+                    output_path = output_file.name
+                
+                torchaudio.save(output_path, waveform, target_sr)
+                
+                logger.info(f"✅ Áudio convertido com librosa: {original_sr}Hz -> {target_sr}Hz, canais: mono")
+                
+                return output_path, target_sr
         
     except Exception as e:
-        logger.error(f"❌ Erro ao converter áudio: {e}", exc_info=True)
+        logger.error(f"❌ Erro ao converter áudio com todos os métodos: {e}", exc_info=True)
         raise
     finally:
         # Limpar arquivo temporário de entrada
