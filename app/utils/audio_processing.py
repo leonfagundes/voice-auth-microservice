@@ -196,7 +196,8 @@ def convert_to_wav(audio_bytes: bytes) -> Tuple[str, int]:
             waveform = resampler(waveform)
         
         # Salvar como WAV normalizado
-        output_path = tempfile.mktemp(suffix='.wav')
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as output_file:
+            output_path = output_file.name
         torchaudio.save(output_path, waveform, target_sr)
         
         logger.info(f"Áudio convertido: {original_sr}Hz -> {target_sr}Hz, canais: {waveform.shape[0]}")
