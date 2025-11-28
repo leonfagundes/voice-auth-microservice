@@ -167,22 +167,48 @@ def get_speechbrain_model(model_name: str) -> EncoderClassifier:
 
 def convert_to_wav(audio_bytes: bytes) -> Tuple[str, int]:
     """
-    Converte bytes de áudio para arquivo WAV temporário
+    Converte bytes de áudio para arquivo WAV temporário normalizado
+    Aceita qualquer formato (MP3, M4A, OGG, etc.) e converte para WAV 16kHz mono
     
     Args:
-        audio_bytes: Bytes do arquivo de áudio
+        audio_bytes: Bytes do arquivo de áudio em qualquer formato
         
     Returns:
-        Tupla com (caminho do arquivo WAV, sample rate)
+        Tupla com (caminho do arquivo WAV normalizado, sample rate=16000)
     """
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
-        temp_file.write(audio_bytes)
-        temp_path = temp_file.name
+    # Salvar bytes de entrada em arquivo temporário
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.input') as input_file:
+        input_file.write(audio_bytes)
+        input_path = input_file.name
     
-    with wave.open(temp_path, 'rb') as wf:
-        sample_rate = wf.getframerate()
-    
-    return temp_path, sample_rate
+    try:
+        # Carregar áudio com torchaudio (suporta múltiplos formatos)
+        waveform, original_sr = torchaudio.load(input_path)
+        
+        # Converter para mono se necessário
+        if waveform.shape[0] > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
+        
+        # Resample para 16kHz se necessário
+        target_sr = 16000
+        if original_sr != target_sr:
+            resampler = torchaudio.transforms.Resample(original_sr, target_sr)
+            waveform = resampler(waveform)
+        
+        # Salvar como WAV normalizado
+        output_path = tempfile.mktemp(suffix='.wav')
+        torchaudio.save(output_path, waveform, target_sr)
+        
+        logger.info(f"Áudio convertido: {original_sr}Hz -> {target_sr}Hz, canais: {waveform.shape[0]}")
+        
+        return output_path, target_sr
+        
+    finally:
+        # Limpar arquivo temporário de entrada
+        try:
+            os.unlink(input_path)
+        except:
+            pass
 
 
 def transcribe_audio(audio_bytes: bytes, vosk_model_path: str) -> Optional[str]:
@@ -241,19 +267,15 @@ def extract_voice_embedding(audio_bytes: bytes, speechbrain_model_name: str) -> 
         Lista com o embedding ou None se falhar
     """
     try:
+        # convert_to_wav já retorna áudio normalizado em 16kHz mono
         wav_path, sample_rate = convert_to_wav(audio_bytes)
         
         model = get_speechbrain_model(speechbrain_model_name)
         
+        # Carregar áudio já normalizado
         waveform, sr = torchaudio.load(wav_path)
         
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-        
-        if sr != 16000:
-            resampler = torchaudio.transforms.Resample(sr, 16000)
-            waveform = resampler(waveform)
-        
+        # Extrair embedding
         embedding = model.encode_batch(waveform)
         embedding_array = embedding.squeeze().cpu().numpy()
         
