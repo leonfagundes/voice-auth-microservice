@@ -11,6 +11,8 @@ import shutil
 import numpy as np
 from typing import Tuple, Optional
 from vosk import Model, KaldiRecognizer
+import librosa
+import soundfile as sf
 
 # Suprimir warnings do torchaudio
 warnings.filterwarnings("ignore", message="torchaudio._backend.set_audio_backend has been deprecated")
@@ -168,7 +170,8 @@ def get_speechbrain_model(model_name: str) -> EncoderClassifier:
 def convert_to_wav(audio_bytes: bytes) -> Tuple[str, int]:
     """
     Converte bytes de áudio para arquivo WAV temporário normalizado
-    Aceita qualquer formato (MP3, M4A, OGG, etc.) e converte para WAV 16kHz mono
+    Aceita qualquer formato (MP3, M4A, OGG, AAC, AMR, etc.) e converte para WAV 16kHz mono
+    Usa torchaudio como principal e librosa como fallback para maior compatibilidade
     
     Args:
         audio_bytes: Bytes do arquivo de áudio em qualquer formato
@@ -182,8 +185,22 @@ def convert_to_wav(audio_bytes: bytes) -> Tuple[str, int]:
         input_path = input_file.name
     
     try:
-        # Carregar áudio com torchaudio (suporta múltiplos formatos)
-        waveform, original_sr = torchaudio.load(input_path)
+        # Tentar com torchaudio primeiro (mais rápido)
+        try:
+            waveform, original_sr = torchaudio.load(input_path)
+            logger.info(f"Áudio carregado com torchaudio: {original_sr}Hz")
+        except Exception as e:
+            # Fallback para librosa (suporta mais formatos, especialmente do Android)
+            logger.warning(f"torchaudio falhou, usando librosa como fallback: {e}")
+            audio_data, original_sr = librosa.load(input_path, sr=None, mono=False)
+            
+            # Converter numpy array para tensor torch
+            if audio_data.ndim == 1:
+                waveform = torch.from_numpy(audio_data).unsqueeze(0)
+            else:
+                waveform = torch.from_numpy(audio_data)
+            
+            logger.info(f"Áudio carregado com librosa: {original_sr}Hz")
         
         # Converter para mono se necessário
         if waveform.shape[0] > 1:
@@ -198,12 +215,16 @@ def convert_to_wav(audio_bytes: bytes) -> Tuple[str, int]:
         # Salvar como WAV normalizado
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as output_file:
             output_path = output_file.name
+        
         torchaudio.save(output_path, waveform, target_sr)
         
-        logger.info(f"Áudio convertido: {original_sr}Hz -> {target_sr}Hz, canais: {waveform.shape[0]}")
+        logger.info(f"✅ Áudio convertido: {original_sr}Hz -> {target_sr}Hz, canais: mono")
         
         return output_path, target_sr
         
+    except Exception as e:
+        logger.error(f"❌ Erro ao converter áudio: {e}", exc_info=True)
+        raise
     finally:
         # Limpar arquivo temporário de entrada
         try:
